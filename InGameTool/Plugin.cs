@@ -26,7 +26,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ICallGateSubscriber<(int, int)> version;
     private readonly ICallGateSubscriber<Dictionary<string, string>> mods;
     private readonly ICallGateSubscriber<string> modFolder;
-    private readonly ICallGateSubscriber<ushort, Dictionary<string, HashSet<string>>?[]> paths;
+    private readonly ICallGateSubscriber<ushort[], Dictionary<string, HashSet<string>>?[]> paths;
     private bool open;
     private bool targetConsent;
     private bool includeGamePaths;
@@ -36,11 +36,11 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
-        version = Interface.GetIpcSubscriber<(int, int)>("Penumbra.ApiVersion");
+        version = Interface.GetIpcSubscriber<(int, int)>("Penumbra.ApiVersion.V5");
         mods = Interface.GetIpcSubscriber<Dictionary<string, string>>("Penumbra.GetModList");
         modFolder = Interface.GetIpcSubscriber<string>("Penumbra.GetModDirectory");
-        paths = Interface.GetIpcSubscriber<ushort, Dictionary<string, HashSet<string>>?[]>(
-            "Penumbra.GetGameObjectResourcePaths");
+        paths = Interface.GetIpcSubscriber<ushort[], Dictionary<string, HashSet<string>>?[]>(
+            "Penumbra.GetGameObjectResourcePaths.V5");
         Commands.AddHandler("/ingametool", new CommandInfo((_, _) => open = !open)
         { HelpMessage = "Open InGameTool live diagnostics." });
         Interface.UiBuilder.Draw += Draw;
@@ -131,12 +131,12 @@ public sealed class Plugin : IDalamudPlugin
         var errors = new List<string>();
         var report = new Dictionary<string, object?>
         {
-            ["schema"] = 2, ["utc"] = DateTimeOffset.UtcNow,
+            ["schema"] = 3, ["toolVersion"] = "0.2.1.0", ["utc"] = DateTimeOffset.UtcNow,
             ["subject"] = self ? "self" : "consenting-target",
             ["consentConfirmed"] = self || targetConsent,
             ["connectionStatus"] = details,
             ["detectedPlugins"] = RelatedPlugins(),
-            ["dalamudVersion"] = Interface.GetDalamudVersion().ToString()
+            ["dalamudVersion"] = Interface.GetDalamudVersion().Version.ToString()
         };
         string root = "";
         try { root = modFolder.InvokeFunc() ?? ""; }
@@ -151,7 +151,7 @@ public sealed class Plugin : IDalamudPlugin
         catch (Exception e) { errors.Add("Penumbra.GetModList: " + e.GetType().Name); }
         try
         {
-            var data = paths.InvokeFunc(player.ObjectIndex);
+            var data = paths.InvokeFunc(new ushort[] { player.ObjectIndex });
             var entries = data?.FirstOrDefault();
             if (entries == null) errors.Add("Penumbra resource IPC returned no data");
             else
@@ -172,7 +172,7 @@ public sealed class Plugin : IDalamudPlugin
                 if (includeGamePaths) report["optionalGamePaths"] = allPaths.OrderBy(x => x).Take(20000).ToArray();
             }
         }
-        catch (Exception e) { errors.Add("Penumbra.GetGameObjectResourcePaths: " + e.GetType().Name); }
+        catch (Exception e) { errors.Add("Penumbra.GetGameObjectResourcePaths.V5: " + e.GetType().Name); }
         report["errors"] = errors;
         try
         {
