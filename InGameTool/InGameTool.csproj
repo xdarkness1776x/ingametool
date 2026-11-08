@@ -1,16 +1,13 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <Version>0.3.0.0</Version>
-    <AssemblyName>InGameTool</AssemblyName>
+    <Version>0.2.0.0</Version>
     <Author>xdarkness1776x</Author>
-    <Name>InGameTool Live Investigator</Name>
-    <Punchline>Diagnose PlayerSync and Penumbra from inside FFXIV.</Punchline>
-    <Description>On-demand, read-only character resource diagnostics with Desktop JSON reports. Penumbra public IPC, Dalamud plugin discovery, and PlayerSync status. No mod extraction.</Description>
+    <Name>InGameTool</Name>
+    <Punchline>Live Penumbra and PlayerSync diagnostics.</Punchline>
+    <Description>Read-only, in-game Penumbra IPC resource scans and PlayerSync plugin compatibility checks. Saves JSON diagnostics to your Desktop only on request. Does not copy or download mods.</Description>
     <RepoUrl>https://github.com/xdarkness1776x/ingametool</RepoUrl>
-    <Tags>diagnostic;penumbra;playersync</Tags>
+    <Tags>diagnostics;penumbra;playersync</Tags>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 </Project>

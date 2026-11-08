@@ -1,0 +1,68 @@
+name: Build and publish InGameTool for Dalamud
+on:
+  push:
+    branches: [main]
+    paths: ['InGameTool/**', '.github/workflows/build.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install Dalamud
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile latest.zip
+          New-Item -ItemType Directory -Force "$env:APPDATA\XIVLauncher\addon\Hooks\dev" | Out-Null
+          Expand-Archive -Force latest.zip "$env:APPDATA\XIVLauncher\addon\Hooks\dev"
+      - name: Compile
+        shell: pwsh
+        run: dotnet build ./InGameTool/InGameTool.csproj --configuration Release
+      - name: Package and make store entry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out = 'InGameTool/bin/x64/Release/InGameTool'
+          if (!(Test-Path "$out/InGameTool.dll")) { throw 'DLL missing' }
+          if (!(Test-Path "$out/InGameTool.json")) { throw 'Dalamud manifest missing' }
+          $m = Get-Content "$out/InGameTool.json" -Raw | ConvertFrom-Json
+          if (!$m.AssemblyVersion -or !$m.DalamudApiLevel) { throw 'Manifest version/API missing' }
+          $tag = "v$($m.AssemblyVersion)"
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          Compress-Archive "$out/*" InGameTool.zip -Force
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/InGameTool.zip"
+          $m | Add-Member NoteProperty DownloadLinkInstall $url -Force
+          $m | Add-Member NoteProperty DownloadLinkUpdate $url -Force
+          $m | Add-Member NoteProperty DownloadLinkTesting $url -Force
+          $m | Add-Member NoteProperty ApplicableVersion 'any' -Force
+          $m | Add-Member NoteProperty RepoUrl "https://github.com/$env:GITHUB_REPOSITORY" -Force
+          $m | Add-Member NoteProperty LastUpdate ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()) -Force
+          @($m) | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 pluginmaster.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InGameTool-package
+          path: InGameTool.zip
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$env:RELEASE_TAG" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "$env:RELEASE_TAG" InGameTool.zip --clobber
+          } else {
+            gh release create "$env:RELEASE_TAG" InGameTool.zip --title "$env:RELEASE_TAG" --notes "InGameTool Dalamud diagnostics"
+          }
+      - name: Publish Dalamud repository
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pluginmaster.json
+          git commit -m "Publish Dalamud manifest [skip ci]"
+          git push origin HEAD:main
