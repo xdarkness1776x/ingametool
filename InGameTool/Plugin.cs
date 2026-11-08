@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -157,7 +158,7 @@ public sealed class Plugin : IDalamudPlugin
             {
                 var allPaths = entries.Values.Where(v => v != null).SelectMany(v => v)
                     .Where(x => !string.IsNullOrEmpty(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                var extensions = allPaths.GroupBy(Path.GetExtension)
+                var extensions = allPaths.GroupBy(x => Path.GetExtension(x) ?? string.Empty)
                     .ToDictionary(g => g.Key, g => g.Count());
                 var local = entries.Keys.Count(Path.IsPathFullyQualified);
                 var inside = entries.Keys.Count(p => root.Length > 0 &&
