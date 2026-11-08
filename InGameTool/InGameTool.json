@@ -1,0 +1,13 @@
+{
+  "Name": "InGameTool Live Investigator",
+  "Author": "xdarkness1776x",
+  "Punchline": "Live Penumbra and PlayerSync diagnostics inside FFXIV",
+  "Description": "Read-only character appearance resource inspection through Penumbra public IPC, local installed-plugin status checks, and Desktop JSON exports. Scans run only when requested. No mod extraction or uploads.",
+  "RepoUrl": "https://github.com/xdarkness1776x/ingametool",
+  "Tags": [
+    "diagnostics",
+    "penumbra",
+    "playersync"
+  ],
+  "ApplicableVersion": "any"
+}
