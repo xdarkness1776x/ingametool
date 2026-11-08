@@ -27,6 +27,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ICallGateSubscriber<Dictionary<string, string>> mods;
     private readonly ICallGateSubscriber<string> modFolder;
     private readonly ICallGateSubscriber<ushort[], Dictionary<string, HashSet<string>>?[]> paths;
+    private readonly ICallGateSubscriber<List<nint>> playerSyncHandledAddresses;
     private bool open;
     private bool targetConsent;
     private bool includeGamePaths;
@@ -41,6 +42,7 @@ public sealed class Plugin : IDalamudPlugin
         modFolder = Interface.GetIpcSubscriber<string>("Penumbra.GetModDirectory");
         paths = Interface.GetIpcSubscriber<ushort[], Dictionary<string, HashSet<string>>?[]>(
             "Penumbra.GetGameObjectResourcePaths.V5");
+        playerSyncHandledAddresses = Interface.GetIpcSubscriber<List<nint>>("PlayerSync.GetHandledAddresses");
         Commands.AddHandler("/ingametool", new CommandInfo((_, _) => open = !open)
         { HelpMessage = "Open InGameTool live diagnostics." });
         Interface.UiBuilder.Draw += Draw;
@@ -75,7 +77,17 @@ public sealed class Plugin : IDalamudPlugin
             .Where(p => new[] { "Penumbra", "PlayerSync", "Mare", "Glamourer", "Customize" }
                 .Any(n => p.Name.Contains(n, StringComparison.OrdinalIgnoreCase)))
             .Select(p => p.Name + " " + p.Version + (p.IsLoaded ? " (loaded)" : " (not loaded)")));
-        details = "Penumbra public IPC version: " + penumbra + "; installed: " + names
+        var playerSyncIpc = "unavailable";
+        try
+        {
+            var addresses = playerSyncHandledAddresses.InvokeFunc();
+            playerSyncIpc = "active (" + addresses.Count + " handled game objects)";
+        }
+        catch (Exception ex)
+        {
+            playerSyncIpc = "unavailable: " + ex.GetType().Name;
+        }
+        details = "PlayerSync handled-object IPC: " + playerSyncIpc + "; Penumbra public IPC version: " + penumbra + "; installed: " + names
             + ". PlayerSync presence is detected, but its private sync internals are not accessed.";
         status = "Connection check completed.";
     }
@@ -89,6 +101,7 @@ public sealed class Plugin : IDalamudPlugin
         {
             ImGui.TextWrapped("Read-only PlayerSync / Penumbra investigation. No transfers or mod copies.");
             ImGui.TextWrapped("Reports are saved to your Desktop; nothing is uploaded.");
+            ImGui.TextWrapped("v0.2.2: Checks PlayerSync handled objects and groups resource origins by equipment/body part.");
             if (ImGui.Button("CHECK CONNECTIONS")) CheckConnections();
             ImGui.TextWrapped(details);
             ImGui.Separator();
@@ -122,6 +135,30 @@ public sealed class Plugin : IDalamudPlugin
         return Path.Combine(desktop, "PlayerSync_Live_Investigator", "reports");
     }
 
+    private static string ClassifyOrigin(string resolvedPath, string penumbraDirectory)
+    {
+        if (!Path.IsPathFullyQualified(resolvedPath)) return "game-resource-or-swap";
+        var root = penumbraDirectory.TrimEnd('\\', '/');
+        if (root.Length > 0 && resolvedPath.StartsWith(root + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+            return "installed-penumbra";
+        // A path outside Penumbra is NOT proof that PlayerSync owns it.
+        return "external-local-file";
+    }
+
+    private static string ClassifyResourceFamily(string gamePath)
+    {
+        var parts = gamePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return "other";
+        if (!parts[0].Equals("chara", StringComparison.OrdinalIgnoreCase))
+            return parts[0].ToLowerInvariant();
+        if (parts.Length > 2 && (parts[1] == "equipment" || parts[1] == "accessory"))
+            return parts[1] + "/" + parts[2];
+        if (parts.Length > 5 && parts[1] == "human" && parts[3] == "obj")
+            return "human/" + parts[4] + "/" + parts[5];
+        return "chara/" + parts[1];
+    }
+
     private void Capture(bool self)
     {
         if (!self && !targetConsent) { status = "Confirm consent first."; return; }
@@ -131,13 +168,33 @@ public sealed class Plugin : IDalamudPlugin
         var errors = new List<string>();
         var report = new Dictionary<string, object?>
         {
-            ["schema"] = 3, ["toolVersion"] = "0.2.1.1", ["utc"] = DateTimeOffset.UtcNow,
+            ["schema"] = 4, ["toolVersion"] = "0.2.2.0", ["utc"] = DateTimeOffset.UtcNow,
             ["subject"] = self ? "self" : "consenting-target",
             ["consentConfirmed"] = self || targetConsent,
             ["connectionStatus"] = details,
             ["detectedPlugins"] = RelatedPlugins(),
             ["dalamudVersion"] = Interface.GetDalamudVersion().Version.ToString()
         };
+        // Public PlayerSync IPC returns runtime game-object addresses, but no mod data.
+        // Never serialize raw addresses. Store only whether this player is handled.
+        try
+        {
+            var handled = playerSyncHandledAddresses.InvokeFunc();
+            report["playerSyncHandledActor"] = new
+            {
+                QuerySucceeded = true,
+                VisibleHandledObjectCount = handled.Count,
+                SelectedCharacterHandled = handled.Contains(player.Address)
+            };
+        }
+        catch (Exception ex)
+        {
+            report["playerSyncHandledActor"] = new
+            {
+                QuerySucceeded = false,
+                Diagnostic = ex.GetType().Name
+            };
+        }
         string root = "";
         try { root = modFolder.InvokeFunc() ?? ""; }
         catch (Exception e) { errors.Add("Penumbra.GetModDirectory: " + e.GetType().Name); }
@@ -169,6 +226,36 @@ public sealed class Plugin : IDalamudPlugin
                     LocalFiles = local, InsidePenumbra = inside, OutsidePenumbra = local - inside,
                     Extensions = extensions
                 };
+                // Pair each resolved resource with the game path(s) to which it maps.
+                // This is strictly metadata: do not export local absolute file paths,
+                // file contents, sync keys, character names, or memory addresses.
+                var mapped = entries
+                    .SelectMany(entry => (entry.Value ?? new HashSet<string>())
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Select(gamePath => new
+                        {
+                            Origin = ClassifyOrigin(entry.Key, root),
+                            Family = ClassifyResourceFamily(gamePath),
+                            Resource = entry.Key,
+                            GamePath = gamePath
+                        }))
+                    .ToArray();
+                report["resourceOrigins"] = entries
+                    .GroupBy(entry => ClassifyOrigin(entry.Key, root))
+                    .OrderBy(group => group.Key)
+                    .Select(group => new { Origin = group.Key, ResolvedFiles = group.Count() })
+                    .ToArray();
+                report["originByAppearanceGroup"] = mapped
+                    .GroupBy(x => new { x.Origin, x.Family })
+                    .OrderBy(g => g.Key.Origin).ThenBy(g => g.Key.Family)
+                    .Select(g => new
+                    {
+                        g.Key.Origin,
+                        AppearanceGroup = g.Key.Family,
+                        DistinctResolvedFiles = g.Select(x => x.Resource).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                        ReferencedGamePaths = g.Select(x => x.GamePath).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+                    })
+                    .ToArray();
                 if (includeGamePaths) report["optionalGamePaths"] = allPaths.OrderBy(x => x).Take(20000).ToArray();
             }
         }

@@ -17,3 +17,7 @@ In the game, enter `/ingametool` or open it from Plugin Installer. Click **CHECK
 ## Direct-download updates
 
 Starting with version 0.2.1.1, release automation publishes a version-specific ZIP at `distribution/v<version>/InGameTool.zip` through raw.githubusercontent.com and verifies its download checksum. This mirrors the GitHub Release ZIP but avoids GitHub's release-assets download redirect. Dalamud installs and updates using this ZIP; no Windows launcher is required.
+
+## 0.2.2.0 — source attribution diagnostics
+
+The reports now include a **read-only PlayerSync handled-object IPC check**, using the public `PlayerSync.GetHandledAddresses` endpoint. Game-object pointers are never saved; the report records only whether the selected character is handled and how many game objects are handled. Reports also include `resourceOrigins` and `originByAppearanceGroup` (equipment/accessory/body part). These summaries do not expose any local absolute filesystem paths or transfer mod files. **External local file** does not necessarily mean the file originated in PlayerSync. Original mod identities are not available from resource mapping alone.
