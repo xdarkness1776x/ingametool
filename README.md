@@ -13,3 +13,7 @@ In the game, enter `/ingametool` or open it from Plugin Installer. Click **CHECK
 **Limits:** PlayerSync is checked for loaded status only, not through an undocumented API. Penumbra resource resolution is queried through public IPC on a character in the local game scene. Reports contain no player names, IDs, mod file contents, or remote server credentials. Other players' full original mod manifests are not exposed through normal synchronization. This version does not copy, export, or download mods.
 
 **Status:** source and CI configured; never assume installation works until the Actions build passes and `pluginmaster.json` exists. If CI fails, fix code and rerun before attempting installation. This is an unofficial third-party plugin.
+
+## Direct-download updates
+
+Starting with version 0.2.1.1, release automation publishes a version-specific ZIP at `distribution/v<version>/InGameTool.zip` through raw.githubusercontent.com and verifies its download checksum. This mirrors the GitHub Release ZIP but avoids GitHub's release-assets download redirect. Dalamud installs and updates using this ZIP; no Windows launcher is required.

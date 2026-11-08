@@ -46,7 +46,19 @@ jobs:
           Copy-Item $dll.FullName (Join-Path $pack 'InGameTool.dll')
           Copy-Item $manifest.FullName (Join-Path $pack 'InGameTool.json')
           Compress-Archive (Join-Path $pack '*') InGameTool.zip -Force
-          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/InGameTool.zip"
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path 'InGameTool.zip'))
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName })
+            if ('InGameTool.dll' -notin $entries -or 'InGameTool.json' -notin $entries) {
+              throw 'Installation ZIP must contain DLL and manifest in the root'
+            }
+          } finally { $archive.Dispose() }
+          # Put a versioned ZIP in the same repository hosting the pluginmaster JSON.
+          # Avoid GitHub Releases redirects to the separate release-assets CDN.
+          $distFile = "distribution/$tag/InGameTool.zip"
+          New-Item -ItemType Directory -Force (Split-Path $distFile) | Out-Null
+          Copy-Item 'InGameTool.zip' $distFile -Force
+          $url = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/main/$distFile"
           $m | Add-Member NoteProperty DownloadLinkInstall $url -Force
           $m | Add-Member NoteProperty DownloadLinkUpdate $url -Force
           $m | Add-Member NoteProperty DownloadLinkTesting $url -Force
@@ -74,6 +86,27 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pluginmaster.json
-          git commit -m "Publish Dalamud manifest [skip ci]"
+          git add -f -- pluginmaster.json "distribution/$env:RELEASE_TAG/InGameTool.zip"
+          git commit -m "Publish $env:RELEASE_TAG direct ZIP and manifest [skip ci]"
           git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw 'Repository publishing push failed' }
+      - name: Verify downloadable ZIP mirror
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/main/distribution/$env:RELEASE_TAG/InGameTool.zip"
+          $expected = (Get-FileHash 'InGameTool.zip' -Algorithm SHA256).Hash
+          $verified = $false
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+              Invoke-WebRequest $url -OutFile verify.zip -ErrorAction Stop
+              $actual = (Get-FileHash 'verify.zip' -Algorithm SHA256).Hash
+              if ($actual -ne $expected) { throw 'Downloaded package checksum mismatch' }
+              $verified = $true
+              break
+            } catch {
+              Write-Warning "Mirror verification attempt $attempt failed: $_"
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (!$verified) { throw 'Published ZIP mirror could not be verified' }

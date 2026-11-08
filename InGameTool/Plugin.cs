@@ -131,7 +131,7 @@ public sealed class Plugin : IDalamudPlugin
         var errors = new List<string>();
         var report = new Dictionary<string, object?>
         {
-            ["schema"] = 3, ["toolVersion"] = "0.2.1.0", ["utc"] = DateTimeOffset.UtcNow,
+            ["schema"] = 3, ["toolVersion"] = "0.2.1.1", ["utc"] = DateTimeOffset.UtcNow,
             ["subject"] = self ? "self" : "consenting-target",
             ["consentConfirmed"] = self || targetConsent,
             ["connectionStatus"] = details,
