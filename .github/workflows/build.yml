@@ -26,23 +26,35 @@ jobs:
       - name: Package and make store entry
         shell: pwsh
         run: |
-          $ErrorActionPreference='Stop'
-          $out = 'InGameTool/bin/x64/Release/InGameTool'
-          if (!(Test-Path "$out/InGameTool.dll")) { throw 'DLL missing' }
-          if (!(Test-Path "$out/InGameTool.json")) { throw 'Dalamud manifest missing' }
-          $m = Get-Content "$out/InGameTool.json" -Raw | ConvertFrom-Json
-          if (!$m.AssemblyVersion -or !$m.DalamudApiLevel) { throw 'Manifest version/API missing' }
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Built files:"
+          Get-ChildItem InGameTool/bin -Recurse | Select-Object -ExpandProperty FullName
+          $packed = Get-ChildItem InGameTool/bin -Recurse -File -Filter latest.zip | Select-Object -First 1
+          if ($packed) {
+            Copy-Item $packed.FullName InGameTool.zip -Force
+          } else {
+            $dll = Get-ChildItem InGameTool/bin -Recurse -File -Filter InGameTool.dll | Select-Object -First 1
+            $manifest = Get-ChildItem InGameTool/bin -Recurse -File -Filter InGameTool.json | Select-Object -First 1
+            if (!$dll -or !$manifest) { throw 'Built plugin DLL or generated Dalamud manifest missing' }
+            Compress-Archive -Path "$($dll.DirectoryName)/*" -DestinationPath InGameTool.zip -Force
+          }
+          New-Item -ItemType Directory -Force packaged | Out-Null
+          Expand-Archive InGameTool.zip packaged -Force
+          $dllCheck = Get-ChildItem packaged -Recurse -File -Filter InGameTool.dll | Select-Object -First 1
+          $manifestCheck = Get-ChildItem packaged -Recurse -File -Filter InGameTool.json | Select-Object -First 1
+          if (!$dllCheck -or !$manifestCheck) { throw 'Published zip is missing the plugin DLL or generated manifest' }
+          $m = Get-Content $manifestCheck.FullName -Raw | ConvertFrom-Json
+          if (!$m.AssemblyVersion -or !$m.DalamudApiLevel -or !$m.InternalName) { throw 'Generated manifest has missing version, Dalamud API, or internal name' }
           $tag = "v$($m.AssemblyVersion)"
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-          Compress-Archive "$out/*" InGameTool.zip -Force
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/InGameTool.zip"
-          $m | Add-Member NoteProperty DownloadLinkInstall $url -Force
-          $m | Add-Member NoteProperty DownloadLinkUpdate $url -Force
-          $m | Add-Member NoteProperty DownloadLinkTesting $url -Force
-          $m | Add-Member NoteProperty ApplicableVersion 'any' -Force
-          $m | Add-Member NoteProperty RepoUrl "https://github.com/$env:GITHUB_REPOSITORY" -Force
-          $m | Add-Member NoteProperty LastUpdate ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()) -Force
-          @($m) | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 pluginmaster.json
+          $m | Add-Member -NotePropertyName DownloadLinkInstall -NotePropertyValue $url -Force
+          $m | Add-Member -NotePropertyName DownloadLinkUpdate -NotePropertyValue $url -Force
+          $m | Add-Member -NotePropertyName ApplicableVersion -NotePropertyValue 'any' -Force
+          $m | Add-Member -NotePropertyName RepoUrl -NotePropertyValue "https://github.com/$env:GITHUB_REPOSITORY" -Force
+          $m | Add-Member -NotePropertyName LastUpdate -NotePropertyValue ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()) -Force
+          ConvertTo-Json -InputObject @($m) -Depth 20 | Set-Content -Encoding utf8 pluginmaster.json
+          Write-Host "Prepared installable package for $($m.InternalName), API $($m.DalamudApiLevel), version $($m.AssemblyVersion)"
       - uses: actions/upload-artifact@v4
         with:
           name: InGameTool-package
