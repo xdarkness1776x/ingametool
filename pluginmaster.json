@@ -3,7 +3,7 @@
     "Author": "xdarkness1776x",
     "Name": "InGameTool Live Investigator",
     "InternalName": "InGameTool",
-    "AssemblyVersion": "0.2.0.0",
+    "AssemblyVersion": "0.2.1.0",
     "Description": "Read-only character appearance resource inspection through Penumbra public IPC, local installed-plugin status checks, and Desktop JSON exports. Scans run only when requested. No mod extraction or uploads.",
     "Tags": [
       "diagnostics",
@@ -17,11 +17,11 @@
     "LoadPriority": 0,
     "Punchline": "Live Penumbra and PlayerSync diagnostics inside FFXIV",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/xdarkness1776x/ingametool/releases/download/v0.2.0.0/InGameTool.zip",
-    "DownloadLinkUpdate": "https://github.com/xdarkness1776x/ingametool/releases/download/v0.2.0.0/InGameTool.zip",
-    "DownloadLinkTesting": "https://github.com/xdarkness1776x/ingametool/releases/download/v0.2.0.0/InGameTool.zip",
+    "DownloadLinkInstall": "https://github.com/xdarkness1776x/ingametool/releases/download/v0.2.1.0/InGameTool.zip",
+    "DownloadLinkUpdate": "https://github.com/xdarkness1776x/ingametool/releases/download/v0.2.1.0/InGameTool.zip",
+    "DownloadLinkTesting": "https://github.com/xdarkness1776x/ingametool/releases/download/v0.2.1.0/InGameTool.zip",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/xdarkness1776x/ingametool",
-    "LastUpdate": "1794126751"
+    "LastUpdate": "1794127112"
   }
 ]
