@@ -22,7 +22,7 @@ jobs:
           Expand-Archive -Force latest.zip "$env:APPDATA\XIVLauncher\addon\Hooks\dev"
       - name: Compile
         shell: pwsh
-        run: dotnet build ./InGameTool/InGameTool.csproj --configuration Release
+        run: dotnet build ./InGameTool/InGameTool.csproj --configuration Release -p:Platform=x64
       - name: Package and make store entry
         shell: pwsh
         run: |
