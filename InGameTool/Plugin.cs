@@ -116,10 +116,13 @@ public sealed class Plugin : IDalamudPlugin
             ImGui.Checkbox("The targeted player agreed to the scan", ref targetConsent);
             if (ImGui.Button("SCAN MY CHARACTER + SAVE")) Capture(true);
             ImGui.SameLine();
-            if (!targetConsent) ImGui.BeginDisabled();
+            // Capture/Browse may clear targetConsent in this frame. Match the ImGui
+            // BeginDisabled/EndDisabled calls using the pre-click state.
+            var targetActionsDisabled = !targetConsent;
+            if (targetActionsDisabled) ImGui.BeginDisabled();
             if (ImGui.Button("SCAN TARGET + SAVE")) Capture(false);
             if (ImGui.Button("BROWSE TARGET RESOURCES")) BrowseTarget();
-            if (!targetConsent) ImGui.EndDisabled();
+            if (targetActionsDisabled) ImGui.EndDisabled();
             if (previewGroups.Count > 0)
             {
                 ImGui.Separator();
@@ -288,7 +291,7 @@ public sealed class Plugin : IDalamudPlugin
             var plan = new
             {
                 Schema = 1,
-                ToolVersion = "0.2.3.0",
+                ToolVersion = "0.2.3.1",
                 Utc = DateTimeOffset.UtcNow,
                 Type = "resource-group-selection",
                 Note = "NOT original Penumbra mods, transfer authorization, or downloadable files.",
@@ -316,7 +319,7 @@ public sealed class Plugin : IDalamudPlugin
         var errors = new List<string>();
         var report = new Dictionary<string, object?>
         {
-            ["schema"] = 4, ["toolVersion"] = "0.2.3.0", ["utc"] = DateTimeOffset.UtcNow,
+            ["schema"] = 4, ["toolVersion"] = "0.2.3.1", ["utc"] = DateTimeOffset.UtcNow,
             ["subject"] = self ? "self" : "consenting-target",
             ["consentConfirmed"] = self || targetConsent,
             ["connectionStatus"] = details,

@@ -25,3 +25,7 @@ The reports now include a **read-only PlayerSync handled-object IPC check**, usi
 ## 0.2.3.0 — selectable preview of appearance resources
 
 With a consenting, PlayerSync-handled player targeted, select the consent checkbox and click **BROWSE TARGET RESOURCES**. The plugin reads Penumbra's public resource-map IPC and presents a checklist of **appearance resource groups** (equipment, hair, face, etc.), with a count of external local resources, Penumbra-installed resources, and game/swap resources. Click **SAVE SELECTED GROUPS PLAN** to export a JSON summary to the Desktop reports folder; no original local file paths, player identities, memory addresses, or mod files are included. The plan is *not* a list of original mods, and no download is performed. The preview is cleared on each new browse and requires a new permission confirmation.
+
+### 0.2.3.1 UI state fix
+
+Ensures in-game target-consent controls remain balanced when permission is reset after a capture or preview. This avoids an ImGui disabled-stack error when scanning/browsing a target.
