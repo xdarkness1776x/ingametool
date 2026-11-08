@@ -29,3 +29,9 @@ With a consenting, PlayerSync-handled player targeted, select the consent checkb
 ### 0.2.3.1 UI state fix
 
 Ensures in-game target-consent controls remain balanced when permission is reset after a capture or preview. This avoids an ImGui disabled-stack error when scanning/browsing a target.
+
+## 0.2.4.0 — detailed group selection and opt-in catalog
+
+A selected target resource group now has a **VIEW GAME PATHS** expander showing the game's resource identifiers. The exported selection plan (schema 2) contains those game paths plus explicit counts of groups with and without external local resources. It never contains absolute local filesystem paths, cache file locations, passwords, authentication tokens, or target identity.
+
+**EXPORT MY PENUMBRA MOD CATALOG** reads the installed mods on your own Penumbra instance via `Penumbra.GetModList` and queries public `Penumbra.GetChangedItems.V5` per mod to report the number of affected item entries. Optionally choose **Include affected-item labels in MY mod catalog** to include the labels. It saves only after the button is clicked and never uploads anything. This proves whether original mod names and affected-item metadata can be cataloged by a cooperating client's own Penumbra instance. It does NOT reveal target original mod identities, installable packages, or confer redistribution permission.

@@ -28,17 +28,19 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ICallGateSubscriber<string> modFolder;
     private readonly ICallGateSubscriber<ushort[], Dictionary<string, HashSet<string>>?[]> paths;
     private readonly ICallGateSubscriber<List<nint>> playerSyncHandledAddresses;
+    private readonly ICallGateSubscriber<string, string, Dictionary<string, object?>> changedItems;
     private bool open;
     private bool targetConsent;
     private bool includeGamePaths;
     private bool includeOwnModNames;
+    private bool includeOwnChangedItemNames;
     private string status = "Ready. Click CHECK CONNECTIONS to test Penumbra IPC.";
     private string details = "";
     private readonly List<PreviewGroup> previewGroups = [];
     private readonly HashSet<string> selectedPreviewGroups = new(StringComparer.OrdinalIgnoreCase);
     private string previewStatus = "No resource groups loaded. Target a consenting PlayerSync-synced character.";
     private sealed record PreviewGroup(string Family, int ExternalFiles, int PenumbraFiles,
-        int GameResources, int GamePaths);
+        int GameResources, int GamePaths, string[] GamePathSamples);
 
 
     public Plugin()
@@ -49,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
         paths = Interface.GetIpcSubscriber<ushort[], Dictionary<string, HashSet<string>>?[]>(
             "Penumbra.GetGameObjectResourcePaths.V5");
         playerSyncHandledAddresses = Interface.GetIpcSubscriber<List<nint>>("PlayerSync.GetHandledAddresses");
+        changedItems = Interface.GetIpcSubscriber<string, string, Dictionary<string, object?>>("Penumbra.GetChangedItems.V5");
         Commands.AddHandler("/ingametool", new CommandInfo((_, _) => open = !open)
         { HelpMessage = "Open InGameTool live diagnostics." });
         Interface.UiBuilder.Draw += Draw;
@@ -107,12 +110,14 @@ public sealed class Plugin : IDalamudPlugin
         {
             ImGui.TextWrapped("Read-only PlayerSync / Penumbra investigation. No transfers or mod copies.");
             ImGui.TextWrapped("Reports are saved to your Desktop; nothing is uploaded.");
-            ImGui.TextWrapped("v0.2.3: Browse and select appearance resource groups from PlayerSync-handled targets.");
+            ImGui.TextWrapped("v0.2.4: Inspect resource-group game paths and export an opt-in local mod catalog.");
             if (ImGui.Button("CHECK CONNECTIONS")) CheckConnections();
             ImGui.TextWrapped(details);
             ImGui.Separator();
             ImGui.Checkbox("Include game resource paths", ref includeGamePaths);
             ImGui.Checkbox("Include MY installed mod names (self scans only)", ref includeOwnModNames);
+            ImGui.Checkbox("Include affected-item labels in MY mod catalog (optional)", ref includeOwnChangedItemNames);
+            if (ImGui.Button("EXPORT MY PENUMBRA MOD CATALOG")) SaveMyModCatalog();
             ImGui.Checkbox("The targeted player agreed to the scan", ref targetConsent);
             if (ImGui.Button("SCAN MY CHARACTER + SAVE")) Capture(true);
             ImGui.SameLine();
@@ -151,9 +156,22 @@ public sealed class Plugin : IDalamudPlugin
                             if (picked) selectedPreviewGroups.Add(g.Family);
                             else selectedPreviewGroups.Remove(g.Family);
                         }
+                        if (ImGui.CollapsingHeader("VIEW GAME PATHS##paths_" + g.Family))
+                        {
+                            ImGui.TextWrapped("These are game-resource paths, never local mod/cache locations.");
+                            foreach (var gp in g.GamePathSamples)
+                                ImGui.TextWrapped(gp);
+                        }
                     }
                 }
-                ImGui.TextWrapped(selectedPreviewGroups.Count + " appearance group(s) selected.");
+                var selectedExternal = previewGroups
+                    .Count(g => selectedPreviewGroups.Contains(g.Family) && g.ExternalFiles > 0);
+                var selectedWithoutExternal = previewGroups
+                    .Count(g => selectedPreviewGroups.Contains(g.Family) && g.ExternalFiles == 0);
+                ImGui.TextWrapped(selectedPreviewGroups.Count + " group(s) selected: " +
+                    selectedExternal + " with external files, " + selectedWithoutExternal + " without.");
+                if (selectedWithoutExternal > 0)
+                    ImGui.TextWrapped("Some selections have no external local resources. They are not downloadable mods.");
                 if (selectedPreviewGroups.Count == 0) ImGui.BeginDisabled();
                 if (ImGui.Button("SAVE SELECTED GROUPS PLAN")) SaveSelectionPlan();
                 if (selectedPreviewGroups.Count == 0) ImGui.EndDisabled();
@@ -255,7 +273,10 @@ public sealed class Plugin : IDalamudPlugin
                         .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
                     g.Where(x => x.Origin == "game-resource-or-swap").Select(x => x.Resource)
                         .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                    g.Select(x => x.GamePath).Distinct(StringComparer.OrdinalIgnoreCase).Count()))
+                    g.Select(x => x.GamePath).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    g.Select(x => x.GamePath).Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                        .Take(250).ToArray()))
                 .OrderByDescending(x => x.ExternalFiles)
                 .ThenBy(x => x.Family, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -291,10 +312,14 @@ public sealed class Plugin : IDalamudPlugin
             var plan = new
             {
                 Schema = 1,
-                ToolVersion = "0.2.3.1",
+                ToolVersion = "0.2.4.0",
                 Utc = DateTimeOffset.UtcNow,
                 Type = "resource-group-selection",
-                Note = "NOT original Penumbra mods, transfer authorization, or downloadable files.",
+                Note = "Game-path-only selection metadata. NOT original Penumbra mods, transfer authorization, or downloadable files.",
+                SelectedGroupCount = selection.Length,
+                GroupsWithExternalFiles = selection.Count(g => g.ExternalFiles > 0),
+                GroupsWithoutExternalFiles = selection.Count(g => g.ExternalFiles == 0),
+                GroupExternalResourceCountSum = selection.Sum(g => g.ExternalFiles),
                 Groups = selection
             };
             var file = Path.Combine(Folder(), "ingametool_selection_" +
@@ -310,6 +335,70 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
+    private void SaveMyModCatalog()
+    {
+        // Opt-in local Penumbra metadata, not a query of a remote player's mod list.
+        try
+        {
+            var list = mods.InvokeFunc();
+            var catalog = new List<object>(Math.Min(list.Count, 400));
+            var failures = 0;
+            foreach (var mod in list.OrderBy(p => p.Value, StringComparer.OrdinalIgnoreCase).Take(400))
+            {
+                try
+                {
+                    var affected = changedItems.InvokeFunc(mod.Key, mod.Value);
+                    string[]? labels = includeOwnChangedItemNames
+                        ? affected.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).Take(250).ToArray()
+                        : null;
+                    catalog.Add(new
+                    {
+                        DirectoryKey = mod.Key,
+                        Name = mod.Value,
+                        AffectedItemCount = affected.Count,
+                        OptionalAffectedItemLabels = labels,
+                        Diagnostic = (string?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    failures++;
+                    catalog.Add(new
+                    {
+                        DirectoryKey = mod.Key,
+                        Name = mod.Value,
+                        AffectedItemCount = (int?)null,
+                        OptionalAffectedItemLabels = (string[]?)null,
+                        Diagnostic = ex.GetType().Name
+                    });
+                }
+            }
+            var data = new
+            {
+                Schema = 1,
+                ToolVersion = "0.2.4.0",
+                Utc = DateTimeOffset.UtcNow,
+                Type = "opt-in-self-penumbra-mod-catalog",
+                Note = "Local installed mods only. Does not identify another player's original mods, grant file transfer, or include mod files.",
+                ModCount = catalog.Count,
+                PerModDiagnosticFailures = failures,
+                IncludesAffectedItemLabels = includeOwnChangedItemNames,
+                Mods = catalog
+            };
+            Directory.CreateDirectory(Folder());
+            var file = Path.Combine(Folder(), "ingametool_my_mod_catalog_" +
+                DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff") + ".json");
+            File.WriteAllText(file, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
+            status = "Saved your local Penumbra catalog (" + catalog.Count +
+                " mods, " + failures + " IPC error(s)): " + Path.GetFileName(file);
+        }
+        catch (Exception ex)
+        {
+            status = "Unable to export your local Penumbra catalog: " + ex.GetType().Name;
+            Log.Error(ex, "SaveMyModCatalog");
+        }
+    }
+
     private void Capture(bool self)
     {
         if (!self && !targetConsent) { status = "Confirm consent first."; return; }
@@ -319,7 +408,7 @@ public sealed class Plugin : IDalamudPlugin
         var errors = new List<string>();
         var report = new Dictionary<string, object?>
         {
-            ["schema"] = 4, ["toolVersion"] = "0.2.3.1", ["utc"] = DateTimeOffset.UtcNow,
+            ["schema"] = 4, ["toolVersion"] = "0.2.4.0", ["utc"] = DateTimeOffset.UtcNow,
             ["subject"] = self ? "self" : "consenting-target",
             ["consentConfirmed"] = self || targetConsent,
             ["connectionStatus"] = details,
