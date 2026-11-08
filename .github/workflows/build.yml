@@ -53,7 +53,7 @@ jobs:
           $m | Add-Member NoteProperty ApplicableVersion 'any' -Force
           $m | Add-Member NoteProperty RepoUrl "https://github.com/$env:GITHUB_REPOSITORY" -Force
           $m | Add-Member NoteProperty LastUpdate ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()) -Force
-          @($m) | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 pluginmaster.json
+          ConvertTo-Json -InputObject @($m) -Depth 20 | Set-Content -Encoding utf8 pluginmaster.json
       - uses: actions/upload-artifact@v4
         with:
           name: InGameTool-package
