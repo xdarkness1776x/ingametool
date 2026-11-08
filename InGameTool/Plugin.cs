@@ -34,6 +34,12 @@ public sealed class Plugin : IDalamudPlugin
     private bool includeOwnModNames;
     private string status = "Ready. Click CHECK CONNECTIONS to test Penumbra IPC.";
     private string details = "";
+    private readonly List<PreviewGroup> previewGroups = [];
+    private readonly HashSet<string> selectedPreviewGroups = new(StringComparer.OrdinalIgnoreCase);
+    private string previewStatus = "No resource groups loaded. Target a consenting PlayerSync-synced character.";
+    private sealed record PreviewGroup(string Family, int ExternalFiles, int PenumbraFiles,
+        int GameResources, int GamePaths);
+
 
     public Plugin()
     {
@@ -101,7 +107,7 @@ public sealed class Plugin : IDalamudPlugin
         {
             ImGui.TextWrapped("Read-only PlayerSync / Penumbra investigation. No transfers or mod copies.");
             ImGui.TextWrapped("Reports are saved to your Desktop; nothing is uploaded.");
-            ImGui.TextWrapped("v0.2.2: Checks PlayerSync handled objects and groups resource origins by equipment/body part.");
+            ImGui.TextWrapped("v0.2.3: Browse and select appearance resource groups from PlayerSync-handled targets.");
             if (ImGui.Button("CHECK CONNECTIONS")) CheckConnections();
             ImGui.TextWrapped(details);
             ImGui.Separator();
@@ -112,7 +118,43 @@ public sealed class Plugin : IDalamudPlugin
             ImGui.SameLine();
             if (!targetConsent) ImGui.BeginDisabled();
             if (ImGui.Button("SCAN TARGET + SAVE")) Capture(false);
+            if (ImGui.Button("BROWSE TARGET RESOURCES")) BrowseTarget();
             if (!targetConsent) ImGui.EndDisabled();
+            if (previewGroups.Count > 0)
+            {
+                ImGui.Separator();
+                ImGui.TextWrapped("SELECT RESOURCE GROUPS (not original mod packages)");
+                ImGui.TextWrapped("These groups come from game paths. Selection creates a local plan only; it does not copy or download files.");
+                if (ImGui.Button("SELECT EXTERNAL GROUPS"))
+                {
+                    selectedPreviewGroups.Clear();
+                    foreach (var g in previewGroups.Where(g => g.ExternalFiles > 0))
+                        selectedPreviewGroups.Add(g.Family);
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("CLEAR SELECTION")) selectedPreviewGroups.Clear();
+                ImGui.TextWrapped(previewStatus);
+                if (ImGui.CollapsingHeader("Appearance groups (click to expand)"))
+                {
+                    foreach (var g in previewGroups)
+                    {
+                        var picked = selectedPreviewGroups.Contains(g.Family);
+                        var title = g.Family + " | external " + g.ExternalFiles
+                            + " | Penumbra " + g.PenumbraFiles
+                            + " | game/swap " + g.GameResources
+                            + " | paths " + g.GamePaths;
+                        if (ImGui.Checkbox(title + "##group_" + g.Family, ref picked))
+                        {
+                            if (picked) selectedPreviewGroups.Add(g.Family);
+                            else selectedPreviewGroups.Remove(g.Family);
+                        }
+                    }
+                }
+                ImGui.TextWrapped(selectedPreviewGroups.Count + " appearance group(s) selected.");
+                if (selectedPreviewGroups.Count == 0) ImGui.BeginDisabled();
+                if (ImGui.Button("SAVE SELECTED GROUPS PLAN")) SaveSelectionPlan();
+                if (selectedPreviewGroups.Count == 0) ImGui.EndDisabled();
+            }
             if (ImGui.Button("OPEN REPORT FOLDER"))
             {
                 try {
@@ -159,6 +201,112 @@ public sealed class Plugin : IDalamudPlugin
         return "chara/" + parts[1];
     }
 
+    private void BrowseTarget()
+    {
+        previewGroups.Clear();
+        selectedPreviewGroups.Clear();
+        if (!targetConsent)
+        {
+            previewStatus = "Confirm the targeted player's permission first.";
+            return;
+        }
+        try
+        {
+            if (Targets.Target is not IPlayerCharacter player)
+            {
+                previewStatus = "Target a player character first.";
+                return;
+            }
+            // This public endpoint confirms PlayerSync is handling the game object.
+            // It is not a permission grant, and exposes no original mod catalog.
+            var handled = playerSyncHandledAddresses.InvokeFunc();
+            if (!handled.Contains(player.Address))
+            {
+                previewStatus = "PlayerSync is not handling this target right now. No preview created.";
+                return;
+            }
+
+            var penumbraDirectory = modFolder.InvokeFunc() ?? string.Empty;
+            var resourceMap = paths.InvokeFunc(new ushort[] { player.ObjectIndex })?.FirstOrDefault();
+            if (resourceMap == null)
+            {
+                previewStatus = "Penumbra did not return this character's resource map.";
+                return;
+            }
+            // Never retain full local file paths in the preview model.
+            var grouped = resourceMap.SelectMany(entry => (entry.Value ?? new HashSet<string>())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(path => new
+                {
+                    Family = ClassifyResourceFamily(path),
+                    Origin = ClassifyOrigin(entry.Key, penumbraDirectory),
+                    Resource = entry.Key,
+                    GamePath = path
+                }))
+                .GroupBy(x => x.Family)
+                .Select(g => new PreviewGroup(
+                    g.Key,
+                    g.Where(x => x.Origin == "external-local-file").Select(x => x.Resource)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    g.Where(x => x.Origin == "installed-penumbra").Select(x => x.Resource)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    g.Where(x => x.Origin == "game-resource-or-swap").Select(x => x.Resource)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    g.Select(x => x.GamePath).Distinct(StringComparer.OrdinalIgnoreCase).Count()))
+                .OrderByDescending(x => x.ExternalFiles)
+                .ThenBy(x => x.Family, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            previewGroups.AddRange(grouped);
+            previewStatus = "Loaded " + previewGroups.Count +
+                " resource groups from a currently PlayerSync-handled character. No mod files were accessed.";
+            status = previewStatus;
+        }
+        catch (Exception ex)
+        {
+            previewStatus = "Could not browse character: " + ex.GetType().Name;
+            status = previewStatus;
+            Log.Error(ex, "BrowseTarget");
+        }
+        finally
+        {
+            // Confirm permission for each fresh target browse.
+            targetConsent = false;
+        }
+    }
+
+    private void SaveSelectionPlan()
+    {
+        if (selectedPreviewGroups.Count == 0)
+        {
+            status = "Select at least one group first.";
+            return;
+        }
+        try
+        {
+            Directory.CreateDirectory(Folder());
+            var selection = previewGroups.Where(g => selectedPreviewGroups.Contains(g.Family)).ToArray();
+            var plan = new
+            {
+                Schema = 1,
+                ToolVersion = "0.2.3.0",
+                Utc = DateTimeOffset.UtcNow,
+                Type = "resource-group-selection",
+                Note = "NOT original Penumbra mods, transfer authorization, or downloadable files.",
+                Groups = selection
+            };
+            var file = Path.Combine(Folder(), "ingametool_selection_" +
+                DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff") + ".json");
+            File.WriteAllText(file,
+                JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true }));
+            status = "Saved " + selection.Length + " resource-group selections to Desktop: " + Path.GetFileName(file);
+        }
+        catch (Exception ex)
+        {
+            status = "Could not save selection: " + ex.GetType().Name;
+            Log.Error(ex, "SaveSelectionPlan");
+        }
+    }
+
     private void Capture(bool self)
     {
         if (!self && !targetConsent) { status = "Confirm consent first."; return; }
@@ -168,7 +316,7 @@ public sealed class Plugin : IDalamudPlugin
         var errors = new List<string>();
         var report = new Dictionary<string, object?>
         {
-            ["schema"] = 4, ["toolVersion"] = "0.2.2.0", ["utc"] = DateTimeOffset.UtcNow,
+            ["schema"] = 4, ["toolVersion"] = "0.2.3.0", ["utc"] = DateTimeOffset.UtcNow,
             ["subject"] = self ? "self" : "consenting-target",
             ["consentConfirmed"] = self || targetConsent,
             ["connectionStatus"] = details,

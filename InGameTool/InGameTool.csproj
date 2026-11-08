@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.2.2.0</Version>
+    <Version>0.2.3.0</Version>
     <Author>xdarkness1776x</Author>
     <Name>InGameTool</Name>
     <Punchline>Live Penumbra and PlayerSync diagnostics.</Punchline>

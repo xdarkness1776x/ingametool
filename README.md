@@ -21,3 +21,7 @@ Starting with version 0.2.1.1, release automation publishes a version-specific Z
 ## 0.2.2.0 — source attribution diagnostics
 
 The reports now include a **read-only PlayerSync handled-object IPC check**, using the public `PlayerSync.GetHandledAddresses` endpoint. Game-object pointers are never saved; the report records only whether the selected character is handled and how many game objects are handled. Reports also include `resourceOrigins` and `originByAppearanceGroup` (equipment/accessory/body part). These summaries do not expose any local absolute filesystem paths or transfer mod files. **External local file** does not necessarily mean the file originated in PlayerSync. Original mod identities are not available from resource mapping alone.
+
+## 0.2.3.0 — selectable preview of appearance resources
+
+With a consenting, PlayerSync-handled player targeted, select the consent checkbox and click **BROWSE TARGET RESOURCES**. The plugin reads Penumbra's public resource-map IPC and presents a checklist of **appearance resource groups** (equipment, hair, face, etc.), with a count of external local resources, Penumbra-installed resources, and game/swap resources. Click **SAVE SELECTED GROUPS PLAN** to export a JSON summary to the Desktop reports folder; no original local file paths, player identities, memory addresses, or mod files are included. The plan is *not* a list of original mods, and no download is performed. The preview is cleared on each new browse and requires a new permission confirmation.
